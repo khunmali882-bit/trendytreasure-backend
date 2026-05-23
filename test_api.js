@@ -17,7 +17,7 @@ const test = async () => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                username: userRandom,
+                name: userRandom,
                 email: `${userRandom}@example.com`,
                 password: 'password123'
             })

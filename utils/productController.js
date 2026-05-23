@@ -1,47 +1,44 @@
-const { readData, writeData } = require('./fileHandler');
+const Product = require('../models/Product');
 const { sendJSON, sendError, getRequestBody } = require('./responseHelper');
 const crypto = require('crypto');
 
-const PRODUCTS_FILE = 'products.json';
-
 const getAllProducts = async (req, res) => {
     try {
-        const products = await readData(PRODUCTS_FILE);
         const parsedUrl = require('url').parse(req.url, true);
         const search = parsedUrl.query.search;
         const category = parsedUrl.query.category;
 
-        let filteredProducts = products;
+        const query = {};
 
         if (search) {
-            filteredProducts = filteredProducts.filter(p =>
-                p.name.toLowerCase().includes(search.toLowerCase()) ||
-                p.description.toLowerCase().includes(search.toLowerCase())
-            );
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } }
+            ];
         }
 
         if (category) {
-            filteredProducts = filteredProducts.filter(p =>
-                p.category.toLowerCase() === category.toLowerCase()
-            );
+            query.category = { $regex: new RegExp('^' + category + '$', 'i') };
         }
 
-        sendJSON(res, 200, filteredProducts);
+        const products = await Product.find(query, '-_id -__v');
+        sendJSON(res, 200, products);
     } catch (error) {
+        console.error('Get All Products Error:', error);
         sendError(res, 500, 'Error fetching products');
     }
 };
 
 const getProductById = async (req, res, id) => {
     try {
-        const products = await readData(PRODUCTS_FILE);
-        const product = products.find(p => p.id === id);
+        const product = await Product.findOne({ id }, '-_id -__v');
 
         if (!product) {
             return sendError(res, 404, 'Product not found');
         }
         sendJSON(res, 200, product);
     } catch (error) {
+        console.error('Get Product By ID Error:', error);
         sendError(res, 500, 'Error fetching product');
     }
 };
@@ -49,28 +46,34 @@ const getProductById = async (req, res, id) => {
 const createProduct = async (req, res) => {
     try {
         const body = await getRequestBody(req);
-        const { name, description, price, category, imageUrl, stock } = body;
+        const { name, description, price, category, imageUrl, stock, originalPrice, images, variants } = body;
 
-        if (!name || !price) {
+        if (!name || price === undefined) {
             return sendError(res, 400, 'Name and price are required');
         }
 
-        const products = await readData(PRODUCTS_FILE);
-        const newProduct = {
+        const newProduct = new Product({
             id: crypto.randomUUID(),
             name,
             description: description || '',
             price: Number(price),
+            originalPrice: originalPrice ? Number(originalPrice) : Number(price),
             category: category || 'Uncategorized',
             imageUrl: imageUrl || '',
-            stock: Number(stock) || 0,
-            createdAt: new Date().toISOString()
-        };
+            images: images || [],
+            variants: variants || [],
+            stock: stock !== undefined ? Number(stock) : 50
+        });
 
-        products.push(newProduct);
-        await writeData(PRODUCTS_FILE, products);
-        sendJSON(res, 201, newProduct);
+        await newProduct.save();
+        
+        const productObj = newProduct.toObject();
+        delete productObj._id;
+        delete productObj.__v;
+        
+        sendJSON(res, 201, productObj);
     } catch (error) {
+        console.error('Create Product Error:', error);
         sendError(res, 500, 'Error creating product');
     }
 };
@@ -78,36 +81,40 @@ const createProduct = async (req, res) => {
 const updateProduct = async (req, res, id) => {
     try {
         const body = await getRequestBody(req);
-        const products = await readData(PRODUCTS_FILE);
-        const index = products.findIndex(p => p.id === id);
+        
+        // Remove id and database fields from body update to prevent overwriting
+        delete body.id;
+        delete body._id;
+        delete body.__v;
 
-        if (index === -1) {
+        const updatedProduct = await Product.findOneAndUpdate(
+            { id },
+            { $set: body },
+            { new: true, fields: '-_id -__v' }
+        );
+
+        if (!updatedProduct) {
             return sendError(res, 404, 'Product not found');
         }
 
-        // Merge existing with new data
-        const updatedProduct = { ...products[index], ...body, id: products[index].id }; // Ensure ID doesn't change
-        products[index] = updatedProduct;
-
-        await writeData(PRODUCTS_FILE, products);
         sendJSON(res, 200, updatedProduct);
     } catch (error) {
+        console.error('Update Product Error:', error);
         sendError(res, 500, 'Error updating product');
     }
 };
 
 const deleteProduct = async (req, res, id) => {
     try {
-        const products = await readData(PRODUCTS_FILE);
-        const filteredProducts = products.filter(p => p.id !== id);
+        const deletedProduct = await Product.findOneAndDelete({ id });
 
-        if (products.length === filteredProducts.length) {
+        if (!deletedProduct) {
             return sendError(res, 404, 'Product not found');
         }
 
-        await writeData(PRODUCTS_FILE, filteredProducts);
         sendJSON(res, 200, { message: 'Product deleted successfully' });
     } catch (error) {
+        console.error('Delete Product Error:', error);
         sendError(res, 500, 'Error deleting product');
     }
 };

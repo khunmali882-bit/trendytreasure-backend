@@ -17,6 +17,8 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "jsonwebtoken": "^9.0.2",
+    "mongodb": "^6.3.0",
+    "mongoose": "^9.6.2",
     "razorpay": "^2.9.6"
   }
 }

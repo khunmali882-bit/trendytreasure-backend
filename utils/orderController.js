@@ -1,21 +1,18 @@
-const { readData, writeData } = require('./fileHandler');
+const Order = require('../models/Order');
+const Cart = require('../models/Cart');
+const Product = require('../models/Product');
 const { sendJSON, sendError, getRequestBody } = require('./responseHelper');
 const crypto = require('crypto');
-
-const ORDERS_FILE = 'orders.json';
-const CART_FILE = 'cart.json';
-const PRODUCTS_FILE = 'products.json';
 
 const getOrders = async (req, res) => {
     try {
         const user = req.user;
         if (!user) return sendError(res, 401, 'Unauthorized');
 
-        const orders = await readData(ORDERS_FILE);
-        const userOrders = orders.filter(o => o.userId === user.id);
-
+        const userOrders = await Order.find({ userId: user.id }, '-_id -__v');
         sendJSON(res, 200, userOrders);
     } catch (error) {
+        console.error('Get Orders Error:', error);
         sendError(res, 500, 'Error fetching orders');
     }
 };
@@ -25,25 +22,18 @@ const createOrder = async (req, res) => {
         const user = req.user;
         if (!user) return sendError(res, 401, 'Unauthorized');
 
-        // Logic: Create order from current cart
-        const carts = await readData(CART_FILE);
-        const cartIndex = carts.findIndex(c => c.userId === user.id);
-        const userCart = carts[cartIndex];
-
+        // Fetch user's cart
+        const userCart = await Cart.findOne({ userId: user.id });
         if (!userCart || userCart.items.length === 0) {
             return sendError(res, 400, 'Cart is empty');
         }
-
-        const products = await readData(PRODUCTS_FILE);
-        const orders = await readData(ORDERS_FILE);
 
         // Calculate total and Check Stock
         let total = 0;
         const validItems = [];
 
         for (const item of userCart.items) {
-            const productIndex = products.findIndex(p => p.id === item.productId);
-            const product = products[productIndex];
+            const product = await Product.findOne({ id: item.productId });
 
             if (!product) {
                 return sendError(res, 400, `Product ${item.productId} not found`);
@@ -54,34 +44,36 @@ const createOrder = async (req, res) => {
             }
 
             total += product.price * item.quantity;
-            validItems.push({ item, productIndex }); // Store index to update later
+            validItems.push({ item, product });
         }
 
         // Deduct Stock
-        for (const { item, productIndex } of validItems) {
-            products[productIndex].stock -= item.quantity;
+        for (const { item, product } of validItems) {
+            product.stock -= item.quantity;
+            await product.save();
         }
-        await writeData(PRODUCTS_FILE, products); // Save updated stock
 
-        const newOrder = {
+        const newOrder = new Order({
             id: crypto.randomUUID(),
             userId: user.id,
-            items: userCart.items,
+            items: userCart.items.map(i => ({ productId: i.productId, quantity: i.quantity })),
             status: 'Pending',
-            createdAt: new Date().toISOString(),
             totalAmount: total
-        };
+        });
 
-        orders.push(newOrder);
-        await writeData(ORDERS_FILE, orders);
+        await newOrder.save();
 
         // Clear cart
-        carts[cartIndex].items = [];
-        await writeData(CART_FILE, carts);
+        userCart.items = [];
+        await userCart.save();
 
-        sendJSON(res, 201, newOrder);
+        const orderObj = newOrder.toObject();
+        delete orderObj._id;
+        delete orderObj.__v;
+
+        sendJSON(res, 201, orderObj);
     } catch (error) {
-        console.error(error);
+        console.error('Create Order Error:', error);
         sendError(res, 500, 'Error creating order');
     }
 };

@@ -1,6 +1,7 @@
 const http = require('http');
 const url = require('url');
 require('dotenv').config();
+const { connectDB } = require('./utils/database');
 const { sendError, sendJSON } = require('./utils/responseHelper');
 const { registerUser, loginUser, getAllUsers } = require('./utils/userController');
 const { getAllProducts, getProductById, createProduct, updateProduct, deleteProduct } = require('./utils/productController');
@@ -125,6 +126,12 @@ const server = http.createServer((req, res) => {
     sendError(res, 404, `Route ${normalizedMethod} ${normalizedPath} not found`);
 });
 
-server.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+// Connect to Database and start server
+connectDB().then(() => {
+    server.listen(PORT, () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
+}).catch(error => {
+    console.error('Failed to connect to database:', error);
+    process.exit(1);
 });
