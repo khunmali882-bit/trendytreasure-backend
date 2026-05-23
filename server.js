@@ -1,6 +1,7 @@
 const http = require('http');
 const url = require('url');
-require('dotenv').config();
+// Load .env locally; on Render, env vars are injected natively
+try { require('dotenv').config(); } catch (e) {}
 const { connectDB } = require('./utils/database');
 const { sendError, sendJSON } = require('./utils/responseHelper');
 const { registerUser, loginUser, getAllUsers } = require('./utils/userController');
